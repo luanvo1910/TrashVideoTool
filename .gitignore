@@ -1,0 +1,78 @@
+# .gitignore
+
+# Dependencies
+/node_modules
+/renderer/node_modules
+
+# Build output
+/dist
+/build
+/renderer/dist
+/release
+
+# PyInstaller files
+*.spec
+downloader.exe
+editor.exe
+
+# Electron-builder output
+/release
+
+# Environment variables
+.env
+.env.local
+
+# Cookies và file nhạy cảm
+cookies.txt
+/resources/cookies.txt
+*.cookies
+
+# FFmpeg binaries (sẽ được bundle trong build)
+ffmpeg.exe
+ffprobe.exe
+ffplay.exe
+/resources/ffmpeg.exe
+/resources/ffprobe.exe
+/resources/ffplay.exe
+
+# yt-dlp binaries
+yt-dlp.exe
+/resources/yt-dlp.exe
+
+# DLL files (sẽ được bundle trong build)
+*.dll
+/resources/*.dll
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Temporary files
+*.tmp
+*.temp
+/temp_files
+/output
+
+# yt_dlp source (tự động cài đặt, không cần bundle)
+/resources/yt_dlp
