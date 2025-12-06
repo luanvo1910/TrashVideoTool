@@ -442,7 +442,7 @@ function App() {
       partDuration: durationValue, 
       savePath: savePathInputRef.current.value,
       layout: layoutRef.current, // <<< SỬA LỖI 2: Đọc layout từ ref
-      encoder: encoder,
+      encoder: encoder || 'h264_nvenc',
     });
   };
 

@@ -196,9 +196,11 @@ ipcMain.handle('cookies:update', async () => {
 ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl1, videoUrl2, videoSpeed1, videoSpeed2, parts, partDuration, savePath, layout, encoder }) => {
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
     
+    // Khi build, editor.py nằm trong process.resourcesPath (thư mục resources)
+    // Khi dev, editor.py nằm ở root của project (__dirname)
     const pythonScriptPath = app.isPackaged
-      ? path.join(resourcesPath, 'editor.py')
-      : path.join(resourcesPath, 'editor.py'); 
+      ? path.join(process.resourcesPath, 'editor.py')
+      : path.join(__dirname, 'editor.py');
       
     const resourcesPathForPython = app.isPackaged
       ? process.resourcesPath
@@ -213,10 +215,37 @@ ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl1, videoUrl
       '--audio-url', audioUrl, '--video-url1', videoUrl1, '--video-url2', videoUrl2, 
       '--video-speed1', String(videoSpeed1 || 1.0), '--video-speed2', String(videoSpeed2 || 1.0),
       '--parts', String(parts), '--save-path', savePath, '--part-duration', String(partDuration), 
-      '--layout-file', layoutFilePath, '--encoder', encoder
+      '--layout-file', layoutFilePath, '--encoder', encoder || 'h264_nvenc'
     ];
 
     const commandToRun = 'py';
+    
+    // Debug: In ra đường dẫn để kiểm tra (chỉ khi build)
+    if (app.isPackaged) {
+      const debugInfo = `DEBUG: Python script path: ${pythonScriptPath}\nDEBUG: Resources path: ${resourcesPathForPython}\nDEBUG: Script exists: ${fs.existsSync(pythonScriptPath)}\nDEBUG: Resources exists: ${fs.existsSync(resourcesPathForPython)}`;
+      console.log(debugInfo);
+      sendUpdateMessage('process:log', debugInfo);
+    }
+    
+    // Kiểm tra file tồn tại trước khi chạy
+    if (!fs.existsSync(pythonScriptPath)) {
+      const errorMsg = `Python script không tồn tại: ${pythonScriptPath}\nResources path: ${resourcesPath}\nIs packaged: ${app.isPackaged}`;
+      console.error(errorMsg);
+      sendUpdateMessage('process:log', `PYTHON_ERROR: ${errorMsg}`);
+      sendUpdateMessage('process:log', `--- Tiến trình kết thúc với lỗi (mã 1) ---`);
+      sendUpdateMessage('process:progress', { type: 'DONE', value: 100 });
+      return;
+    }
+    
+    // Kiểm tra resources path
+    if (!fs.existsSync(resourcesPathForPython)) {
+      const errorMsg = `Resources path không tồn tại: ${resourcesPathForPython}`;
+      console.error(errorMsg);
+      sendUpdateMessage('process:log', `PYTHON_ERROR: ${errorMsg}`);
+      sendUpdateMessage('process:log', `--- Tiến trình kết thúc với lỗi (mã 1) ---`);
+      sendUpdateMessage('process:progress', { type: 'DONE', value: 100 });
+      return;
+    }
 
     const pythonProcess = spawn(commandToRun, args, { 
       env: { 
@@ -249,7 +278,17 @@ ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl1, videoUrl
         }
     });
     
-    pythonProcess.stderr.on('data', (data) => sendUpdateMessage('process:log', `PYTHON_ERROR: ${data.toString('utf8').trim()}`));
+    pythonProcess.stderr.on('data', (data) => {
+        const lines = data.toString('utf8').split(/(\r\n|\n|\r)/);
+        for (const line of lines) {
+            const logLine = line.trim();
+            if (!logLine) continue;
+            sendUpdateMessage('process:log', logLine);
+            if (logLine.includes('LINK_ERROR:') || logLine.includes('PYTHON_ERROR:')) {
+                hasLinkError = true;
+            }
+        }
+    });
     pythonProcess.on('error', (err) => sendUpdateMessage('process:log', `FATAL_ERROR: Không thể khởi chạy Python. ${err.message}`));
     pythonProcess.on('close', (code) => {
         if (code === 403) {

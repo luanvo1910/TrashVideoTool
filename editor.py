@@ -354,80 +354,99 @@ def process_video(audio_url, video_url1, video_url2, video_speed1, video_speed2,
     try:
         # Lấy thông tin từ link 1 (audio + thumbnail)
         print("STATUS: Lấy thông tin từ Link 1 (Audio + Thumbnail)...", flush=True)
-        audio_info = fetch_video_metadata(audio_url, cookies_path_to_use)
-        audio_title, audio_id, thumbnail_url = audio_info['title'], audio_info['id'], audio_info['thumbnail']
-        sanitized_title = sanitize_filename(audio_title)
+        try:
+            audio_info = fetch_video_metadata(audio_url, cookies_path_to_use)
+            audio_title, audio_id, thumbnail_url = audio_info['title'], audio_info['id'], audio_info['thumbnail']
+            sanitized_title = sanitize_filename(audio_title)
+        except Exception as e:
+            print(f"PYTHON_ERROR: Lỗi khi lấy metadata từ Link 1: {e}", flush=True)
+            raise Exception(f"Lỗi khi lấy metadata từ Link 1: {e}")
         
         # Tải audio và thumbnail từ link 1
         print("STATUS: Tải audio từ Link 1...", flush=True)
-        audio_path = os.path.join(temp_dir, f"{audio_id}_audio.mp3")
-        download_audio_only(audio_url, ffmpeg_path, audio_path, cookies_path_to_use)
+        try:
+            audio_path = os.path.join(temp_dir, f"{audio_id}_audio.mp3")
+            download_audio_only(audio_url, ffmpeg_path, audio_path, cookies_path_to_use)
+            if not os.path.exists(audio_path):
+                raise Exception(f"Audio không được tải thành công: {audio_path}")
+        except Exception as e:
+            print(f"PYTHON_ERROR: Lỗi khi tải audio từ Link 1: {e}", flush=True)
+            raise
         
         print("STATUS: Tải thumbnail từ Link 1...", flush=True)
-        thumbnail_path = os.path.join(temp_dir, f"{audio_id}_thumb.jpg")
-        download_thumbnail(thumbnail_url, thumbnail_path)
+        try:
+            thumbnail_path = os.path.join(temp_dir, f"{audio_id}_thumb.jpg")
+            download_thumbnail(thumbnail_url, thumbnail_path)
+            if not os.path.exists(thumbnail_path):
+                raise Exception(f"Thumbnail không được tải thành công: {thumbnail_path}")
+        except Exception as e:
+            print(f"PYTHON_ERROR: Lỗi khi tải thumbnail từ Link 1: {e}", flush=True)
+            raise
         
         # Lấy thông tin từ link 2 (video 1)
         print("STATUS: Lấy thông tin từ Link 2 (Video 1)...", flush=True)
-        video_info1 = fetch_video_metadata(video_url1, cookies_path_to_use)
-        video_id1 = video_info1['id']
+        try:
+            video_info1 = fetch_video_metadata(video_url1, cookies_path_to_use)
+            video_id1 = video_info1['id']
+        except Exception as e:
+            print(f"PYTHON_ERROR: Lỗi khi lấy metadata từ Link 2: {e}", flush=True)
+            raise Exception(f"Lỗi khi lấy metadata từ Link 2: {e}")
         
         # Lấy thông tin từ link 3 (video 2)
         print("STATUS: Lấy thông tin từ Link 3 (Video 2)...", flush=True)
-        video_info2 = fetch_video_metadata(video_url2, cookies_path_to_use)
-        video_id2 = video_info2['id']
+        try:
+            video_info2 = fetch_video_metadata(video_url2, cookies_path_to_use)
+            video_id2 = video_info2['id']
+        except Exception as e:
+            print(f"PYTHON_ERROR: Lỗi khi lấy metadata từ Link 3: {e}", flush=True)
+            raise Exception(f"Lỗi khi lấy metadata từ Link 3: {e}")
         
         # Hàm helper để tải video không audio
+        # Luôn tải video+audio rồi tách audio để tránh phải chờ download 2 lần
         def download_video_no_audio(url, video_id, output_path):
-            output_template = os.path.splitext(output_path)[0]
-            ydl_opts = {
-                'format': 'bestvideo[ext=mp4]/bestvideo',
-                'outtmpl': f'{output_template}.%(ext)s',
-                'ffmpeg_location': os.path.dirname(ffmpeg_path),
-                'progress_hooks': [ytdlp_progress_hook],
-                'noplaylist': True,
-                'quiet': True,
-                'no_warnings': True,
-                'encoding': 'utf-8',
-            }
-            if cookies_path_to_use and os.path.exists(cookies_path_to_use): 
-                ydl_opts['cookiefile'] = cookies_path_to_use
+            print(f"STATUS: Tải video+audio rồi tách audio...", flush=True)
+            temp_video_with_audio = os.path.join(temp_dir, f"{video_id}_temp.mp4")
             try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([url])
-                    downloaded_files = [f for f in os.listdir(temp_dir) if f.startswith(os.path.basename(output_template)) and not f.endswith('.mp4')]
-                    if downloaded_files:
-                        downloaded_file = os.path.join(temp_dir, downloaded_files[0])
-                        if not downloaded_file.endswith('.mp4'):
-                            cmd = [ffmpeg_path, '-y', '-i', downloaded_file, '-c:v', 'copy', '-an', output_path]
-                            run_command_with_live_output(cmd)
-                            os.remove(downloaded_file)
-                        else:
-                            os.rename(downloaded_file, output_path)
-                    else:
-                        final_video_path = f"{output_template}.mp4"
-                        if os.path.exists(final_video_path):
-                            if os.path.exists(output_path):
-                                os.remove(output_path)
-                            os.rename(final_video_path, output_path)
-            except Exception as e:
-                print(f"STATUS: Không tải được video only, đang tải video+audio rồi tách audio...", flush=True)
-                temp_video_with_audio = os.path.join(temp_dir, f"{video_id}_temp.mp4")
                 download_main_video(url, ffmpeg_path, temp_video_with_audio, cookies_path_to_use)
+                if not os.path.exists(temp_video_with_audio):
+                    raise Exception(f"Video không được tải thành công: {temp_video_with_audio}")
+                print(f"STATUS: Tách audio khỏi video...", flush=True)
                 cmd = [ffmpeg_path, '-y', '-i', temp_video_with_audio, '-c:v', 'copy', '-an', output_path]
                 run_command_with_live_output(cmd)
+                if not os.path.exists(output_path):
+                    raise Exception(f"Video sau khi tách audio không tồn tại: {output_path}")
+            except Exception as e:
+                print(f"PYTHON_ERROR: Lỗi khi tải video: {e}", flush=True)
+                raise
+            finally:
+                # Dọn dẹp file tạm
                 if os.path.exists(temp_video_with_audio):
-                    os.remove(temp_video_with_audio)
+                    try:
+                        os.remove(temp_video_with_audio)
+                    except:
+                        pass
         
         # Tải video 1
         print("STATUS: Tải video 1 từ Link 2 (không audio)...", flush=True)
-        video_path1 = os.path.join(temp_dir, f"{video_id1}_video1.mp4")
-        download_video_no_audio(video_url1, video_id1, video_path1)
+        try:
+            video_path1 = os.path.join(temp_dir, f"{video_id1}_video1.mp4")
+            download_video_no_audio(video_url1, video_id1, video_path1)
+            if not os.path.exists(video_path1):
+                raise Exception(f"Video 1 không được tải thành công: {video_path1}")
+        except Exception as e:
+            print(f"PYTHON_ERROR: Lỗi khi tải video 1: {e}", flush=True)
+            raise
         
         # Tải video 2 (không audio) từ link 3
         print("STATUS: Tải video 2 từ Link 3 (không audio)...", flush=True)
-        video_path2 = os.path.join(temp_dir, f"{video_id2}_video2.mp4")
-        download_video_no_audio(video_url2, video_id2, video_path2)
+        try:
+            video_path2 = os.path.join(temp_dir, f"{video_id2}_video2.mp4")
+            download_video_no_audio(video_url2, video_id2, video_path2)
+            if not os.path.exists(video_path2):
+                raise Exception(f"Video 2 không được tải thành công: {video_path2}")
+        except Exception as e:
+            print(f"PYTHON_ERROR: Lỗi khi tải video 2: {e}", flush=True)
+            raise
         
         # Lấy độ dài audio và các video (trước khi áp dụng speed)
         audio_duration = get_video_duration(audio_path, ffmpeg_path)
@@ -556,11 +575,9 @@ def process_video(audio_url, video_url1, video_url2, video_speed1, video_speed2,
             output_path = os.path.join(output_dir, f"{sanitized_title}_Part_{part_num}.mp4")
             print(f"STATUS: Render Part {part_num}/{actual_num_parts}...", flush=True)
             
-            # Ưu tiên GPU: thêm hwaccel để decode video trên GPU nếu dùng NVIDIA encoder
+            # Không dùng hwaccel cuda vì filter phức tạp (setpts, scale, overlay) không hỗ trợ CUDA format
+            # Decode trên CPU, encode trên GPU (nếu dùng GPU encoder)
             cmd = [ffmpeg_path, '-y', '-hide_banner', '-loglevel', 'error']
-            if 'nvenc' in encoder:
-                # Decode video trên GPU để giảm tải CPU
-                cmd += ['-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda']
             cmd += ['-i', video_path1, '-i', video_path2, '-i', thumbnail_path]
             
             input_map = {'video-placeholder-1': 0, 'video-placeholder-2': 1, 'thumbnail-placeholder': 2}; image_index = 3
@@ -594,7 +611,6 @@ def process_video(audio_url, video_url1, video_url2, video_speed1, video_speed2,
                 cmd += ['-c:v', encoder, '-preset', 'medium', '-global_quality', '23', '-threads', '1']
             else: 
                 # CPU encoder: dùng nhiều threads hơn
-                import os
                 cpu_count = os.cpu_count() or 4
                 threads = min(cpu_count - 1, 6)  # Giữ lại 1 core cho hệ thống, tối đa 6 threads
                 cmd += ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-threads', str(threads)]
@@ -644,5 +660,12 @@ if __name__ == "__main__":
         process_video(args.audio_url, args.video_url1, args.video_url2, args.video_speed1, args.video_speed2, args.parts, args.save_path, args.part_duration, args.layout_file, args.encoder, args.resources_path, args.user_data_path)
         sys.exit(0)  # Thành công
     except Exception as e:
-        # Lỗi đã được xử lý trong process_video, chỉ cần exit với code lỗi
+        import traceback
+        error_msg = str(e)
+        error_traceback = traceback.format_exc()
+        # In lỗi chi tiết ra cả stdout và stderr
+        print(f"PYTHON_ERROR: {error_msg}", file=sys.stderr, flush=True)
+        print(f"PYTHON_ERROR: {error_msg}", flush=True)
+        print(f"TRACEBACK: {error_traceback}", flush=True)
+        print(f"LINK_ERROR: {error_msg}", flush=True)
         sys.exit(1)  # Lỗi

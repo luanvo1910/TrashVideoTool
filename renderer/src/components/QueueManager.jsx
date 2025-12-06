@@ -177,11 +177,11 @@ function QueueManager({ queue = [], onQueueChange, isRendering, isPaused, disabl
                 </div>
                 <div className="queue-item-url" title={item.videoUrl1}>
                   <strong>Link 2:</strong> {item.videoUrl1.length > 35 ? `${item.videoUrl1.substring(0, 35)}...` : item.videoUrl1}
-                  {item.videoSpeed1 && item.videoSpeed1 !== 1.0 && <span style={{ marginLeft: '10px', color: '#888' }}>(x{item.videoSpeed1})</span>}
+                  {item.videoSpeed1 && item.videoSpeed1 !== 1.0 && <span style={{ marginLeft: '10px', color: '#00ff88' }}>(x{item.videoSpeed1})</span>}
                 </div>
                 <div className="queue-item-url" title={item.videoUrl2}>
                   <strong>Link 3:</strong> {item.videoUrl2.length > 35 ? `${item.videoUrl2.substring(0, 35)}...` : item.videoUrl2}
-                  {item.videoSpeed2 && item.videoSpeed2 !== 1.0 && <span style={{ marginLeft: '10px', color: '#888' }}>(x{item.videoSpeed2})</span>}
+                  {item.videoSpeed2 && item.videoSpeed2 !== 1.0 && <span style={{ marginLeft: '10px', color: '#00ff88' }}>(x{item.videoSpeed2})</span>}
                 </div>
               </div>
               <div className="queue-item-actions">

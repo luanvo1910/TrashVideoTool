@@ -117,7 +117,7 @@ function ControlsPane(props) {
       {/* Hiển thị khi có update và CHƯA tải */}
       {isUpdateAvailable && !isDownloadingUpdate && !isUpdateDownloaded && (
         <div className="control-group action-buttons">
-          <button onClick={onDownloadUpdate} style={{backgroundColor: '#28a745'}}>
+          <button onClick={onDownloadUpdate} style={{backgroundColor: '#00ff88', color: '#0a0a0a'}}>
             TẢI VỀ BẢN CẬP NHẬT
           </button>
         </div>
@@ -126,7 +126,7 @@ function ControlsPane(props) {
       {/* Hiển thị khi ĐÃ tải xong */}
       {isUpdateDownloaded && (
         <div className="control-group action-buttons">
-          <button onClick={onInstallUpdate} style={{backgroundColor: '#ffc107', color: '#111'}}>
+          <button onClick={onInstallUpdate} style={{backgroundColor: '#00ff41', color: '#0a0a0a'}}>
             KHỞI ĐỘNG LẠI ĐỂ CÀI ĐẶT
           </button>
         </div>
@@ -138,7 +138,7 @@ function ControlsPane(props) {
           {isRendering && !isPaused ? 'ĐANG RENDER HÀNG ĐỢI...' : isPaused ? 'TIẾP TỤC RENDER' : 'BẮT ĐẦU RENDER'}
         </button>
         {isRendering && (
-          <button onClick={onPauseToggle} disabled={isDownloadingUpdate || isUpdateAvailable} style={{backgroundColor: isPaused ? '#28a745' : '#ffc107', color: isPaused ? '#fff' : '#111'}}>
+          <button onClick={onPauseToggle} disabled={isDownloadingUpdate || isUpdateAvailable} style={{backgroundColor: isPaused ? '#00ff88' : '#ffaa00', color: isPaused ? '#0a0a0a' : '#0a0a0a'}}>
             {isPaused ? 'TIẾP TỤC' : 'TẠM DỪNG'}
           </button>
         )}
@@ -157,7 +157,7 @@ function ControlsPane(props) {
         <button id="newProjectButton" onClick={onReset}>Bắt đầu Project Mới</button>
       )}
       {isRendering && (
-         <button id="newProjectButton" onClick={onReset} style={{backgroundColor: '#ff3b30'}}>HỦY HÀNG ĐỢI</button>
+         <button id="newProjectButton" onClick={onReset} style={{backgroundColor: '#ff4444', color: '#fff'}}>HỦY HÀNG ĐỢI</button>
       )}
     </div>
   );
