@@ -1,6 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, nativeImage } = require('electron');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const Store = require('electron-store');
 const fs = require('fs');
 const os = require('os');
@@ -9,11 +9,51 @@ const { autoUpdater } = require('electron-updater');
 const store = new Store();
 let mainWindow;
 let cachedFonts = null;
+let cachedPythonExecutable = null;
 
 function sendUpdateMessage(channel, ...args) {
   if (mainWindow) {
     mainWindow.webContents.send(channel, ...args);
   }
+}
+
+/**
+ * Tìm Python executable bằng cách thử nhiều lệnh khác nhau
+ * @returns {string} Đường dẫn hoặc tên lệnh Python (fallback về 'py' nếu không tìm thấy)
+ */
+function findPythonExecutable() {
+  // Nếu đã cache, dùng lại
+  if (cachedPythonExecutable) {
+    return cachedPythonExecutable;
+  }
+
+  // Danh sách các lệnh để thử (theo thứ tự ưu tiên)
+  const commandsToTry = process.platform === 'win32' 
+    ? ['python', 'py', 'python3'] 
+    : ['python3', 'python'];
+
+  for (const cmd of commandsToTry) {
+    try {
+      // Thử chạy lệnh với --version để kiểm tra
+      execSync(`${cmd} --version`, { 
+        stdio: 'ignore',
+        timeout: 2000,
+        windowsHide: true
+      });
+      // Nếu thành công, cache và trả về
+      cachedPythonExecutable = cmd;
+      console.log(`Found Python executable: ${cmd}`);
+      return cmd;
+    } catch (error) {
+      // Lệnh không tồn tại, thử lệnh tiếp theo
+      continue;
+    }
+  }
+
+  // Không tìm thấy Python, fallback về 'py' như ProjectRB
+  console.warn('Python executable not found. Falling back to "py"');
+  cachedPythonExecutable = 'py';
+  return 'py';
 }
 
 function createWindow() {
@@ -197,10 +237,10 @@ ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl1, videoUrl
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
     
     // Khi build, editor.py nằm trong process.resourcesPath (thư mục resources)
-    // Khi dev, editor.py nằm ở root của project (__dirname)
+    // Khi dev, editor.py nằm trong thư mục scripts/
     const pythonScriptPath = app.isPackaged
       ? path.join(process.resourcesPath, 'editor.py')
-      : path.join(__dirname, 'editor.py');
+      : path.join(__dirname, 'scripts', 'editor.py');
       
     const resourcesPathForPython = app.isPackaged
       ? process.resourcesPath
@@ -218,11 +258,12 @@ ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl1, videoUrl
       '--layout-file', layoutFilePath, '--encoder', encoder || 'h264_nvenc'
     ];
 
-    const commandToRun = 'py';
+    // Tìm Python executable (sẽ fallback về 'py' nếu không tìm thấy)
+    const commandToRun = findPythonExecutable();
     
     // Debug: In ra đường dẫn để kiểm tra (chỉ khi build)
     if (app.isPackaged) {
-      const debugInfo = `DEBUG: Python script path: ${pythonScriptPath}\nDEBUG: Resources path: ${resourcesPathForPython}\nDEBUG: Script exists: ${fs.existsSync(pythonScriptPath)}\nDEBUG: Resources exists: ${fs.existsSync(resourcesPathForPython)}`;
+      const debugInfo = `DEBUG: Python script path: ${pythonScriptPath}\nDEBUG: Resources path: ${resourcesPathForPython}\nDEBUG: Script exists: ${fs.existsSync(pythonScriptPath)}\nDEBUG: Resources exists: ${fs.existsSync(resourcesPathForPython)}\nDEBUG: Python executable: ${commandToRun}`;
       console.log(debugInfo);
       sendUpdateMessage('process:log', debugInfo);
     }
@@ -247,20 +288,48 @@ ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl1, videoUrl
       return;
     }
 
+    // Test script Python có thể compile được không (kiểm tra syntax)
+    // Điều này giúp phát hiện lỗi syntax ngay từ đầu
+    try {
+      const testCommand = `${commandToRun} -m py_compile "${pythonScriptPath}"`;
+      execSync(testCommand, {
+        encoding: 'utf8',
+        timeout: 5000,
+        windowsHide: true,
+        stdio: 'ignore'
+      });
+      console.log('Python script syntax check passed');
+    } catch (testError) {
+      // Nếu compile thất bại, có lỗi syntax
+      const errorMsg = `PYTHON_ERROR: Script Python có lỗi syntax hoặc không thể compile.\nLỗi: ${testError.message}\n\nVui lòng kiểm tra script: ${pythonScriptPath}`;
+      console.error(errorMsg);
+      sendUpdateMessage('process:log', errorMsg);
+      sendUpdateMessage('process:log', `--- Tiến trình kết thúc với lỗi (mã 1) ---`);
+      sendUpdateMessage('process:progress', { type: 'DONE', value: 100 });
+      return;
+    }
+
     const pythonProcess = spawn(commandToRun, args, { 
       env: { 
         ...process.env, 
         PYTHONIOENCODING: 'utf-8',
         PYTHONUTF8: '1',
         PYTHONLEGACYWINDOWSSTDIO: '0'
-      } 
+      },
+      stdio: ['ignore', 'pipe', 'pipe'] // Đảm bảo stdout và stderr được pipe
     });
     
     let hasLinkSuccess = false;
     let hasLinkError = false;
+    let stdoutBuffer = '';
+    let stderrBuffer = '';
+    let hasReceivedOutput = false;
     
     pythonProcess.stdout.on('data', (data) => {
-        const lines = data.toString('utf8').split(/(\r\n|\n|\r)/);
+        hasReceivedOutput = true;
+        const text = data.toString('utf8');
+        stdoutBuffer += text;
+        const lines = text.split(/(\r\n|\n|\r)/);
         for (const line of lines) {
             const logLine = line.trim();
             if (!logLine) continue;
@@ -279,33 +348,87 @@ ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl1, videoUrl
     });
     
     pythonProcess.stderr.on('data', (data) => {
-        const lines = data.toString('utf8').split(/(\r\n|\n|\r)/);
+        hasReceivedOutput = true;
+        const text = data.toString('utf8');
+        stderrBuffer += text;
+        const lines = text.split(/(\r\n|\n|\r)/);
         for (const line of lines) {
             const logLine = line.trim();
             if (!logLine) continue;
+            // In tất cả stderr để debug
             sendUpdateMessage('process:log', logLine);
             if (logLine.includes('LINK_ERROR:') || logLine.includes('PYTHON_ERROR:')) {
                 hasLinkError = true;
             }
         }
     });
-    pythonProcess.on('error', (err) => sendUpdateMessage('process:log', `FATAL_ERROR: Không thể khởi chạy Python. ${err.message}`));
-    pythonProcess.on('close', (code) => {
-        if (code === 403) {
-            sendUpdateMessage('process:cookie-required');
-        }
-        // Chỉ hiển thị thành công nếu có LINK_SUCCESS và không có LINK_ERROR
-        let statusMsg;
-        if (hasLinkSuccess && !hasLinkError && code === 0) {
-            statusMsg = '--- Tiến trình kết thúc thành công ---';
-        } else if (hasLinkError || code !== 0) {
-            statusMsg = `--- Tiến trình kết thúc với lỗi (mã ${code}) ---`;
+    
+    // Bắt lỗi khi không thể spawn process
+    pythonProcess.on('error', (err) => {
+        let errorMsg;
+        if (err.code === 'ENOENT') {
+            errorMsg = `FATAL_ERROR: Không tìm thấy Python executable "${commandToRun}".\nVui lòng cài đặt Python từ https://www.python.org/downloads/\nĐảm bảo đã chọn "Add Python to PATH" khi cài đặt.\nScript path: ${pythonScriptPath}`;
         } else {
-            statusMsg = `--- Tiến trình kết thúc (mã ${code}) ---`;
+            errorMsg = `FATAL_ERROR: Không thể khởi chạy Python. ${err.message}\nCommand: ${commandToRun}\nScript path: ${pythonScriptPath}`;
         }
-        sendUpdateMessage('process:log', statusMsg);
-        sendUpdateMessage('process:progress', { type: 'DONE', value: 100 });
-        if (fs.existsSync(layoutFilePath)) fs.unlinkSync(layoutFilePath);
+        console.error(errorMsg);
+        sendUpdateMessage('process:log', errorMsg);
+        hasLinkError = true;
+    });
+    pythonProcess.on('close', (code) => {
+        // Đợi một chút để đảm bảo tất cả output đã được đọc
+        setTimeout(() => {
+            if (code === 403) {
+                sendUpdateMessage('process:cookie-required');
+            }
+            
+            // Nếu không có output nào và code !== 0, có thể Python không chạy được
+            if (code !== 0 && !hasLinkError && !hasLinkSuccess) {
+                let errorMsg = `PYTHON_ERROR: Python process exited with code ${code}.\n`;
+                
+                // Nếu có output trong buffer, hiển thị nó
+                if (stdoutBuffer.trim() || stderrBuffer.trim()) {
+                    errorMsg += `\nOutput từ Python:\n`;
+                    if (stdoutBuffer.trim()) {
+                        errorMsg += `STDOUT:\n${stdoutBuffer.trim()}\n\n`;
+                    }
+                    if (stderrBuffer.trim()) {
+                        errorMsg += `STDERR:\n${stderrBuffer.trim()}\n\n`;
+                    }
+                } else if (!hasReceivedOutput) {
+                    // Không có output nào cả - có thể script không chạy được
+                    errorMsg += `Không nhận được output nào từ Python script.\n`;
+                    errorMsg += `Điều này có thể do:\n`;
+                    errorMsg += `1. Script không thể thực thi được (lỗi syntax, import, v.v.)\n`;
+                    errorMsg += `2. Python script exit quá nhanh trước khi in output\n`;
+                    errorMsg += `3. Thiếu thư viện Python cần thiết (ví dụ: yt-dlp)\n\n`;
+                    errorMsg += `Vui lòng thử chạy script thủ công để xem lỗi:\n`;
+                    errorMsg += `${commandToRun} "${pythonScriptPath}" --help\n\n`;
+                }
+                
+                errorMsg += `Thông tin debug:\n`;
+                errorMsg += `- Python executable: ${commandToRun}\n`;
+                errorMsg += `- Script path: ${pythonScriptPath}\n`;
+                errorMsg += `- Resources path: ${resourcesPathForPython}\n`;
+                errorMsg += `- Exit code: ${code}`;
+                
+                sendUpdateMessage('process:log', errorMsg);
+                hasLinkError = true;
+            }
+            
+            // Chỉ hiển thị thành công nếu có LINK_SUCCESS và không có LINK_ERROR
+            let statusMsg;
+            if (hasLinkSuccess && !hasLinkError && code === 0) {
+                statusMsg = '--- Tiến trình kết thúc thành công ---';
+            } else if (hasLinkError || code !== 0) {
+                statusMsg = `--- Tiến trình kết thúc với lỗi (mã ${code}) ---`;
+            } else {
+                statusMsg = `--- Tiến trình kết thúc (mã ${code}) ---`;
+            }
+            sendUpdateMessage('process:log', statusMsg);
+            sendUpdateMessage('process:progress', { type: 'DONE', value: 100 });
+            if (fs.existsSync(layoutFilePath)) fs.unlinkSync(layoutFilePath);
+        }, 100); // Đợi 100ms để đảm bảo output được flush
     });
 });
 
