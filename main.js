@@ -291,17 +291,28 @@ ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl1, videoUrl
     // Test script Python có thể compile được không (kiểm tra syntax)
     // Điều này giúp phát hiện lỗi syntax ngay từ đầu
     try {
+      // Lấy thư mục chứa script để thêm vào PYTHONPATH
+      // Python cần tìm thấy các module (utils, downloader, video_processor) trong cùng thư mục
+      const scriptDir = path.dirname(pythonScriptPath);
       const testCommand = `${commandToRun} -m py_compile "${pythonScriptPath}"`;
+      
       execSync(testCommand, {
         encoding: 'utf8',
         timeout: 5000,
         windowsHide: true,
-        stdio: 'ignore'
+        stdio: 'ignore',
+        env: {
+          ...process.env,
+          // Thêm thư mục chứa script vào PYTHONPATH để Python tìm thấy các module
+          PYTHONPATH: scriptDir + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : ''),
+          PYTHONIOENCODING: 'utf-8',
+          PYTHONUTF8: '1'
+        }
       });
       console.log('Python script syntax check passed');
     } catch (testError) {
-      // Nếu compile thất bại, có lỗi syntax
-      const errorMsg = `PYTHON_ERROR: Script Python có lỗi syntax hoặc không thể compile.\nLỗi: ${testError.message}\n\nVui lòng kiểm tra script: ${pythonScriptPath}`;
+      // Nếu compile thất bại, có thể là lỗi syntax hoặc không tìm thấy module
+      const errorMsg = `PYTHON_ERROR: Script Python có lỗi syntax hoặc không thể compile.\nLỗi: ${testError.message}\n\nVui lòng kiểm tra script: ${pythonScriptPath}\nĐảm bảo các file utils.py, downloader.py, video_processor.py có trong cùng thư mục.`;
       console.error(errorMsg);
       sendUpdateMessage('process:log', errorMsg);
       sendUpdateMessage('process:log', `--- Tiến trình kết thúc với lỗi (mã 1) ---`);
