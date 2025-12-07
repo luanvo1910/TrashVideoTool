@@ -134,6 +134,36 @@ async function loadFonts() {
   }
 }
 
+// --- CẤU HÌNH CACHE ĐỂ TRÁNH LỖI TRUY CẬP ---
+// Set cache directory an toàn hơn để tránh lỗi "Access is denied" trên máy khác
+// Phải set TRƯỚC khi app ready
+if (app.isPackaged) {
+  // Khi build, dùng userData directory (luôn có quyền truy cập)
+  const userDataPath = app.getPath('userData');
+  const cachePath = path.join(userDataPath, 'cache');
+  const gpuCachePath = path.join(userDataPath, 'GPUCache');
+  
+  // Tạo thư mục cache nếu chưa có
+  try {
+    if (!fs.existsSync(cachePath)) {
+      fs.mkdirSync(cachePath, { recursive: true });
+    }
+    if (!fs.existsSync(gpuCachePath)) {
+      fs.mkdirSync(gpuCachePath, { recursive: true });
+    }
+  } catch (err) {
+    console.warn('Không thể tạo cache directory, sẽ dùng mặc định:', err.message);
+  }
+  
+  // Set cache directory cho Electron (chỉ khi packaged)
+  try {
+    app.setPath('cache', cachePath);
+    app.setPath('userCache', cachePath);
+  } catch (err) {
+    console.warn('Không thể set cache path, sẽ dùng mặc định:', err.message);
+  }
+}
+
 app.whenReady().then(() => {
   createWindow();
   loadFonts();
@@ -233,7 +263,7 @@ ipcMain.handle('cookies:update', async () => {
 });
 
 
-ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl1, videoUrl2, videoSpeed1, videoSpeed2, parts, partDuration, savePath, layout, encoder }) => {
+ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl, videoSpeed, parts, partDuration, savePath, layout, encoder }) => {
     const resourcesPath = app.isPackaged ? process.resourcesPath : __dirname;
     
     // Khi build, editor.py nằm trong process.resourcesPath (thư mục resources)
@@ -252,8 +282,8 @@ ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl1, videoUrl
   
     const args = [
       pythonScriptPath, '--resources-path', resourcesPathForPython, '--user-data-path', userDataPath,
-      '--audio-url', audioUrl, '--video-url1', videoUrl1, '--video-url2', videoUrl2, 
-      '--video-speed1', String(videoSpeed1 || 1.0), '--video-speed2', String(videoSpeed2 || 1.0),
+      '--audio-url', audioUrl, '--video-url', videoUrl, 
+      '--video-speed', String(videoSpeed || 1.0),
       '--parts', String(parts), '--save-path', savePath, '--part-duration', String(partDuration), 
       '--layout-file', layoutFilePath, '--encoder', encoder || 'h264_nvenc'
     ];
@@ -281,6 +311,17 @@ ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl1, videoUrl
     // Kiểm tra resources path
     if (!fs.existsSync(resourcesPathForPython)) {
       const errorMsg = `Resources path không tồn tại: ${resourcesPathForPython}`;
+      console.error(errorMsg);
+      sendUpdateMessage('process:log', `PYTHON_ERROR: ${errorMsg}`);
+      sendUpdateMessage('process:log', `--- Tiến trình kết thúc với lỗi (mã 1) ---`);
+      sendUpdateMessage('process:progress', { type: 'DONE', value: 100 });
+      return;
+    }
+    
+    // Kiểm tra FFmpeg có tồn tại không (quan trọng cho xử lý video)
+    const ffmpegPath = path.join(resourcesPathForPython, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+    if (!fs.existsSync(ffmpegPath)) {
+      const errorMsg = `FFmpeg không tìm thấy tại: ${ffmpegPath}\nFFmpeg là bắt buộc để xử lý video.`;
       console.error(errorMsg);
       sendUpdateMessage('process:log', `PYTHON_ERROR: ${errorMsg}`);
       sendUpdateMessage('process:log', `--- Tiến trình kết thúc với lỗi (mã 1) ---`);
@@ -320,13 +361,19 @@ ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl1, videoUrl
       return;
     }
 
+    // Thêm PYTHONPATH vào environment để Python tìm thấy các module
+    const scriptDir = path.dirname(pythonScriptPath);
+    const pythonEnv = {
+      ...process.env,
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONUTF8: '1',
+      PYTHONLEGACYWINDOWSSTDIO: '0',
+      // Thêm thư mục chứa script vào PYTHONPATH để import modules
+      PYTHONPATH: scriptDir + (process.env.PYTHONPATH ? path.delimiter + process.env.PYTHONPATH : '')
+    };
+    
     const pythonProcess = spawn(commandToRun, args, { 
-      env: { 
-        ...process.env, 
-        PYTHONIOENCODING: 'utf-8',
-        PYTHONUTF8: '1',
-        PYTHONLEGACYWINDOWSSTDIO: '0'
-      },
+      env: pythonEnv,
       stdio: ['ignore', 'pipe', 'pipe'] // Đảm bảo stdout và stderr được pipe
     });
     

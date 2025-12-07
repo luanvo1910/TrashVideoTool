@@ -30,21 +30,15 @@ const initialElements = [
     content: "Thumbnail"
   },
   { 
-    id: 'video-placeholder-2', type: 'video', zIndex: 1, source: null,
-    // Giá trị theo VIDEO_WIDTH (720x1280) - nằm bên trái
-    width: 300, height: 300, top: 450, left: 60, transformX: 0, transformY: 0,
-    content: "Link Video 2"
-  },
-  { 
-    id: 'video-placeholder-1', type: 'video', zIndex: 1, source: null,
-    // Giá trị theo VIDEO_WIDTH (720x1280) - nằm bên phải
-    width: 300, height: 300, top: 450, left: 380, transformX: 0, transformY: 0,
-    content: "Link Video 1"
+    id: 'video-placeholder', type: 'video', zIndex: 1, source: null,
+    // Giá trị theo VIDEO_WIDTH (720x1280) - nằm giữa
+    width: 600, height: 400, top: 450, left: 60, transformX: 0, transformY: 0,
+    content: "Video"
   },
   { 
     id: 'text-placeholder', type: 'text', zIndex: 3, content: "Part ...", style: { ...defaultTextStyle },
     // Giá trị theo VIDEO_WIDTH (720x1280)
-    width: 600, height: 150, top: 780, left: 60, transformX: 0, transformY: 0
+    width: 600, height: 150, top: 880, left: 60, transformX: 0, transformY: 0
   },
 ];
 
@@ -411,7 +405,7 @@ function App() {
         return;
     }
     const item = queue[0]; // Luôn lấy item đầu tiên
-    if (!item || !item.audioUrl || !item.videoUrl1 || !item.videoUrl2) {
+    if (!item || !item.audioUrl || !item.videoUrl) {
         setIsRendering(false);
         setUpdateStatus('Lỗi hàng đợi! Item thiếu link.');
         return;
@@ -421,7 +415,7 @@ function App() {
     setUpdateStatus(`Đang xử lý item (còn lại ${totalItems} item trong hàng chờ):`); 
     setStatusText(`Bắt đầu...`); 
     
-    const startLog = `--- Bắt đầu Item (còn lại ${totalItems}):\n  Link 1 (Audio+Thumb): ${item.audioUrl}\n  Link 2 (Video 1): ${item.videoUrl1}\n  Link 3 (Video 2): ${item.videoUrl2} ---\n`;
+    const startLog = `--- Bắt đầu Item (còn lại ${totalItems}):\n  Link 1 (Audio+Thumb): ${item.audioUrl}\n  Link 2 (Video): ${item.videoUrl} ---\n`;
     setLog(startLog);
     fullLogRef.current = startLog;
     
@@ -434,10 +428,8 @@ function App() {
     
     window.electronAPI.runProcessWithLayout({
       audioUrl: item.audioUrl,
-      videoUrl1: item.videoUrl1,
-      videoUrl2: item.videoUrl2,
-      videoSpeed1: item.videoSpeed1 || 1.0,
-      videoSpeed2: item.videoSpeed2 || 1.0,
+      videoUrl: item.videoUrl,
+      videoSpeed: item.videoSpeed || 1.0,
       parts: partsInputRef.current.value,
       partDuration: durationValue, 
       savePath: savePathInputRef.current.value,
