@@ -18,8 +18,8 @@ function sendUpdateMessage(channel, ...args) {
 }
 
 /**
- * Tìm Python executable bằng cách thử nhiều lệnh khác nhau
- * @returns {string} Đường dẫn hoặc tên lệnh Python (fallback về 'py' nếu không tìm thấy)
+ * Tìm Python executable và kiểm tra version
+ * @returns {object} {command: string, version: string} hoặc null nếu không tìm thấy
  */
 function findPythonExecutable() {
   // Nếu đã cache, dùng lại
@@ -34,26 +34,41 @@ function findPythonExecutable() {
 
   for (const cmd of commandsToTry) {
     try {
-      // Thử chạy lệnh với --version để kiểm tra
-      execSync(`${cmd} --version`, { 
-        stdio: 'ignore',
+      // Thử chạy lệnh với --version để kiểm tra và lấy version
+      const versionOutput = execSync(`${cmd} --version`, { 
+        encoding: 'utf8',
         timeout: 2000,
-        windowsHide: true
+        windowsHide: true,
+        stdio: 'pipe'
       });
-      // Nếu thành công, cache và trả về
-      cachedPythonExecutable = cmd;
-      console.log(`Found Python executable: ${cmd}`);
-      return cmd;
+      
+      // Parse version (ví dụ: "Python 3.11.5" hoặc "Python 3.12.0")
+      const versionMatch = versionOutput.match(/Python (\d+)\.(\d+)/);
+      if (versionMatch) {
+        const majorVersion = parseInt(versionMatch[1]);
+        const minorVersion = parseInt(versionMatch[2]);
+        
+        // Kiểm tra Python 3.x (yêu cầu tối thiểu Python 3.7)
+        if (majorVersion === 3 && minorVersion >= 7) {
+          cachedPythonExecutable = { command: cmd, version: versionOutput.trim() };
+          console.log(`Found Python executable: ${cmd} (${versionOutput.trim()})`);
+          return cachedPythonExecutable;
+        } else {
+          console.warn(`Python version ${versionOutput.trim()} không tương thích. Yêu cầu Python 3.7+`);
+          continue;
+        }
+      }
     } catch (error) {
       // Lệnh không tồn tại, thử lệnh tiếp theo
       continue;
     }
   }
 
-  // Không tìm thấy Python, fallback về 'py' như ProjectRB
-  console.warn('Python executable not found. Falling back to "py"');
-  cachedPythonExecutable = 'py';
-  return 'py';
+  // Không tìm thấy Python tương thích, fallback về 'py' như ProjectRB
+  // (có thể 'py' launcher sẽ tự chọn Python đúng version)
+  console.warn('Python executable not found or version incompatible. Falling back to "py" launcher');
+  cachedPythonExecutable = { command: 'py', version: 'unknown (using py launcher)' };
+  return cachedPythonExecutable;
 }
 
 function createWindow() {
@@ -288,12 +303,23 @@ ipcMain.on('video:runProcessWithLayout', (event, { audioUrl, videoUrl, videoSpee
       '--layout-file', layoutFilePath, '--encoder', encoder || 'h264_nvenc'
     ];
 
-    // Tìm Python executable (sẽ fallback về 'py' nếu không tìm thấy)
-    const commandToRun = findPythonExecutable();
+    // Tìm Python executable và kiểm tra version
+    const pythonInfo = findPythonExecutable();
+    if (!pythonInfo) {
+      const errorMsg = `PYTHON_ERROR: Không tìm thấy Python hoặc version không tương thích.\nYêu cầu: Python 3.7 trở lên.\nVui lòng cài đặt Python từ https://www.python.org/downloads/`;
+      console.error(errorMsg);
+      sendUpdateMessage('process:log', errorMsg);
+      sendUpdateMessage('process:log', `--- Tiến trình kết thúc với lỗi (mã 1) ---`);
+      sendUpdateMessage('process:progress', { type: 'DONE', value: 100 });
+      return;
+    }
     
-    // Debug: In ra đường dẫn để kiểm tra (chỉ khi build)
+    const commandToRun = pythonInfo.command;
+    const pythonVersion = pythonInfo.version;
+    
+    // Debug: In ra đường dẫn và version để kiểm tra (chỉ khi build)
     if (app.isPackaged) {
-      const debugInfo = `DEBUG: Python script path: ${pythonScriptPath}\nDEBUG: Resources path: ${resourcesPathForPython}\nDEBUG: Script exists: ${fs.existsSync(pythonScriptPath)}\nDEBUG: Resources exists: ${fs.existsSync(resourcesPathForPython)}\nDEBUG: Python executable: ${commandToRun}`;
+      const debugInfo = `DEBUG: Python script path: ${pythonScriptPath}\nDEBUG: Resources path: ${resourcesPathForPython}\nDEBUG: Script exists: ${fs.existsSync(pythonScriptPath)}\nDEBUG: Resources exists: ${fs.existsSync(resourcesPathForPython)}\nDEBUG: Python executable: ${commandToRun}\nDEBUG: Python version: ${pythonVersion}`;
       console.log(debugInfo);
       sendUpdateMessage('process:log', debugInfo);
     }
